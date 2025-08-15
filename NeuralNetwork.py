@@ -1,12 +1,11 @@
 import numpy as np
-import pickle
+import json
+from ActivationFunctions import ActivationFunctions
 
 class NeuralNetwork:
     def __init__(self, structure: list[int],
-                hidden_activation,
-                hidden_activation_prime,
-                output_activation,
-                output_activation_prime,
+                hidden_activation: str,
+                output_activation: str,
                 learning_rate: float = 0.1,
                 epochs: int = 150) -> None:
         """The "structure" argument is a list where the i-th element represents the number of neurons of the i-th layer of the neural network,
@@ -16,23 +15,23 @@ class NeuralNetwork:
         "[10, 16, 16, 7]" to the "structure" argument.
         
         The hidden layers and output layer can be passed to different activation functions."""
+        self.structure = structure
         self.number_of_layers = len(structure)
-        self.weights = []
-        for i, (x, y) in enumerate(zip(structure[:-1], structure[1:])):
-            if i < len(structure) - 2:
-                self.weights.append(np.random.randn(y, x) * np.sqrt(2.0 / x))
-            else:
-                self.weights.append(np.random.randn(y, x) * 0.1)
-                
+        self.weights = [np.random.randn(y, x)
+                        for x, y in zip(structure[:-1], structure[1:])]
         self.biases = [np.random.randn(y, 1) for y in structure[1:]]
-        self.hidden_activation = hidden_activation
-        self.hidden_activation_prime = hidden_activation_prime
-        self.output_activation = output_activation
-        self.output_activation_prime = output_activation_prime
         self.learning_rate = learning_rate
         self.epochs = epochs
+        self.hidden_activation_name = hidden_activation
+        self.output_activation_name = output_activation
+        self.hidden_activation, self.hidden_activation_prime = ActivationFunctions.ACTIVATIONS[hidden_activation]
+        self.output_activation, self.output_activation_prime = ActivationFunctions.ACTIVATIONS[output_activation]
     
     def forward_propagate(self, input_vector):
+        """Feeds forward the input vector, rendered into an np.array of shape (k,1).
+        Returns the output of the neural network and a tuple of lists of 
+        the iterated versions of the input vector after and before being passed to the activation
+        function."""
         activations = [input_vector]
         pre_activations = []
         current = input_vector
@@ -48,6 +47,7 @@ class NeuralNetwork:
         return activations[-1], (activations, pre_activations)
     
     def back_propagate(self, input_vector, expected_output):
+        """Updates the weights and biases based on one input and its expected output."""
         _, (activations, zs) = self.forward_propagate(input_vector)
         delta_w = [np.zeros(w.shape) for w in self.weights]
         delta_b = [np.zeros(b.shape) for b in self.biases]
@@ -63,6 +63,7 @@ class NeuralNetwork:
             self.biases[i] -= self.learning_rate * delta_b[i]
     
     def get_mse_loss(self, data):
+        """Calculates the loss of the neural network using the mean squared error."""
         total_loss = 0
         for input_vector, expected_output in data:
             output, _ = self.forward_propagate(input_vector)
@@ -70,6 +71,8 @@ class NeuralNetwork:
         return total_loss / len(data)
 
     def train(self, training_data, testing_data):
+        """Trains the neural network based on two different categories of data : training and testing.
+        Outputs the MSE loss of each."""
         train_losses = []
         test_losses = []
         for epoch in range(self.epochs):
@@ -79,35 +82,35 @@ class NeuralNetwork:
             test_loss = self.get_mse_loss(testing_data)
             train_losses.append(train_loss)
             test_losses.append(test_loss)
-            print(f"Epoch {epoch+1}/{self.epochs} | Train loss: {train_loss:.6f} | Test loss: {test_loss:.6f}")
+            print(f"Epoch {epoch+1}/{self.epochs} | Train loss: {train_loss:.8f} | Test loss: {test_loss:.8f}")
         return train_losses, test_losses
     
     def save(self, filename):
-        """Save the model to a file using pickle"""
-        with open(filename, 'wb') as f:
-            pickle.dump({
-                'weights': self.weights,
-                'biases': self.biases,
-                'structure': [self.weights[0].shape[1]] + [w.shape[0] for w in self.weights],
-                'learning_rate': self.learning_rate,
-                'epochs': self.epochs
-            }, f)
-    
+        """Save model to JSON file"""
+        data = {
+            'structure': self.structure,
+            'hidden_activation': self.hidden_activation_name,
+            'output_activation': self.output_activation_name,
+            'learning_rate': self.learning_rate,
+            'epochs': self.epochs,
+            'weights': [w.tolist() for w in self.weights],
+            'biases': [b.tolist() for b in self.biases]
+        }
+        with open(filename, 'w') as f:
+            json.dump(data, f)
+
     @classmethod
-    def load(cls, filename, hidden_activation, hidden_activation_prime, 
-             output_activation, output_activation_prime):
-        """Load a model from a file"""
-        with open(filename, 'rb') as f:
-            data = pickle.load(f)
-        net = cls(
-            data['structure'],
-            hidden_activation,
-            hidden_activation_prime,
-            output_activation,
-            output_activation_prime,
-            data['learning_rate'],
-            data['epochs']
+    def load(filename):
+        """Load model from JSON file"""
+        with open(filename, 'r') as f:
+            data = json.load(f)
+        nn = NeuralNetwork(
+            structure=data['structure'],
+            hidden_activation=data['hidden_activation'],
+            output_activation=data['output_activation'],
+            learning_rate=data['learning_rate'],
+            epochs=data['epochs']
         )
-        net.weights = data['weights']
-        net.biases = data['biases']
-        return net
+        nn.weights = [np.array(w) for w in data['weights']]
+        nn.biases = [np.array(b) for b in data['biases']]
+        return nn
